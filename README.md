@@ -1,16 +1,22 @@
 # PingSzyfr
-Prosty program szyfrujący napisany w asemblerze.
+<del>Prosty</del> Prymitywny program szyfrujący napisany w asemblerze.
 
 ## Instrukcja:
+Program jest tak trudny, że nawet ja się w nim gubię.
 Aby zapisać jakiś tekst, z danym hasłem, trzeba wklepać takie coś:
 
 ```
-echo "Super tajna wiadomosc" | ./szyfr SuperTajneHaslo > wiadomosc.bin
+./pszyfr -k NiebezpiecznieHaslo -i pingwin.txt -o tajny-pingwin.bin
+```
+natomiast, żeby zapisać surowy tekst:
+
+```
+Jeszcze się nie da. Poczekaj na następne wydania.
 ```
 a żeby odczytać, o tak:
 
 ```
-./szyfr SuperTajneHaslo < wiadomosc.bin
+./pszyfr -k NiebezpieczneHaslo -i tajny-pingwin.bin
 ```
 więc program jest nawet prosty w obsłudze.
 
