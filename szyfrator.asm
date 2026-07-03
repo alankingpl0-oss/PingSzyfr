@@ -1,6 +1,7 @@
 ; =====================================================================
 ; Ulepszony Szyfrator XOR w NASM (Linux x86_64)
-; Użycie: ./szyfrator <haslo> [plik_wej] [plik_wyj]
+; Użycie: ./pszyfr -k <haslo> [-i plik_wej] [-o plik_wyj]
+; Jeśli pominiesz -o, odszyfruje "w locie" bezpośrednio na ekran.
 ; =====================================================================
 
 section .data
@@ -21,42 +22,94 @@ section .data
     
     BUF_SIZE  equ 1024
     
-    usage_msg db "Błąd: Brakujące argumenty!", 10
-              db "Użycie: ./pszyfr <haslo> [plik_wej] [plik_wyj]", 10
-              db "Jeśli nie podasz plików, program użyje stdin/stdout.", 10
+    usage_msg db "Blad: Brakujace lub niepoprawne argumenty!", 10
+              db "PingSzyfr v0.2. Uzycie: ./pszyfr -k <haslo> [-i plik_wej] [-o plik_wyj]", 10
+              db "Jesli pominiesz -i lub -o, program uzyje stdin/stdout.", 10
     usage_len equ $ - usage_msg
 
-    err_in_msg db "Błąd: Nie można otworzyć pliku wejściowego!", 10
+    err_in_msg db "Blad: Nie mozna otworzyc pliku wejsciowego!", 10
     err_in_len equ $ - err_in_msg
 
-    err_out_msg db "Błąd: Nie można utworzyć/otworzyć pliku wyjściowego!", 10
+    err_out_msg db "Blad: Nie mozna utworzyc/otworzyc pliku wyjsciowego!", 10
     err_out_len equ $ - err_out_msg
 
 section .bss
-    buffer    resb BUF_SIZE   ; Bufor na odczytane dane
-    key_ptr   resq 1          ; Wskaźnik na ciąg tekstowy hasła
-    key_len   resq 1          ; Długość hasła w bajtach
-    fd_in     resq 1          ; Deskryptor pliku wejściowego
-    fd_out    resq 1          ; Deskryptor pliku wyjściowego
+    buffer       resb BUF_SIZE   
+    key_ptr      resq 1          
+    key_len      resq 1          
+    in_file_ptr  resq 1          
+    out_file_ptr resq 1          
+    fd_in        resq 1          
+    fd_out       resq 1          
 
 section .text
     global _start
 
 _start:
-    ; Sprawdzamy liczbę argumentów (argc) z góry stosu
-    mov rax, [rsp]
-    cmp rax, 2
-    jl .err_usage             ; Jeśli argc < 2, to nawet hasła nie ma
+    mov r12, [rsp]          ; r12 = argc
+    cmp r12, 3              
+    jl .err_usage
 
-    ; Domyślnie ustawiamy stdin i stdout
+    mov qword [key_ptr], 0
+    mov qword [in_file_ptr], 0
+    mov qword [out_file_ptr], 0
+
+    mov r13, 1              ; r13 = indeks argv (od 1)
+
+.parse_args:
+    cmp r13, r12            
+    jge .check_required
+
+    mov r14, [rsp + r13*8 + 8] 
+    mov ax, word [r14]         ; Pobieramy dwa pierwsze znaki (np. "-k")
+
+    cmp ax, 0x6b2d          ; "-k"
+    je .parse_key
+    cmp ax, 0x692d          ; "-i"
+    je .parse_in
+    cmp ax, 0x6f2d          ; "-o"
+    je .parse_out
+
+    inc r13
+    jmp .parse_args
+
+.parse_key:
+    inc r13                 
+    cmp r13, r12
+    jge .err_usage          
+    mov r15, [rsp + r13*8 + 8]
+    mov [key_ptr], r15
+    inc r13
+    jmp .parse_args
+
+.parse_in:
+    inc r13
+    cmp r13, r12
+    jge .err_usage          
+    mov r15, [rsp + r13*8 + 8]
+    mov [in_file_ptr], r15
+    inc r13
+    jmp .parse_args
+
+.parse_out:
+    inc r13
+    cmp r13, r12
+    jge .err_usage          
+    mov r15, [rsp + r13*8 + 8]
+    mov [out_file_ptr], r15
+    inc r13
+    jmp .parse_args
+
+.check_required:
+    cmp qword [key_ptr], 0
+    je .err_usage
+
+    ; Domyślne deskryptory (w razie braku flag -i oraz -o)
     mov qword [fd_in], STDIN
     mov qword [fd_out], STDOUT
 
-    ; Pobieramy wskaźnik do argv[1] (hasło)
-    mov rsi, [rsp + 16]
-    mov [key_ptr], rsi
-
-    ; Obliczamy długość hasła
+    ; Obliczanie długości klucza
+    mov rsi, [key_ptr]
     xor rcx, rcx
 .strlen_loop:
     cmp byte [rsi + rcx], 0
@@ -66,41 +119,37 @@ _start:
 .strlen_done:
     mov [key_len], rcx
 
-    ; Sprawdzamy czy podano plik wejściowy (argc >= 3)
-    mov rax, [rsp]
-    cmp rax, 3
-    jl .init_cipher_loop      ; Brak dodatkowych plików, jedziemy na stdin/stdout
+    ; Obsługa pliku wejściowego
+    cmp qword [in_file_ptr], 0
+    je .setup_out           
 
-    ; Otwieramy plik wejściowy (argv[2])
-    mov rdi, [rsp + 24]       ; rdi = argv[2]
+    mov rdi, [in_file_ptr]
     mov rax, SYS_OPEN
     mov rsi, O_RDONLY
-    xor rdx, rdx              ; Brak flag uprawnień przy odczycie
+    xor rdx, rdx
     syscall
     cmp rax, 0
     jl .err_input_file
-    mov [fd_in], rax          ; Zapisujemy otrzymany deskryptor
+    mov [fd_in], rax        
 
-    ; Sprawdzamy czy podano plik wyjściowy (argc >= 4)
-    mov rax, [rsp]
-    cmp rax, 4
-    jl .init_cipher_loop      ; Brak pliku wyjściowego, wynik idzie na stdout
+.setup_out:
+    ; Obsługa pliku wyjściowego
+    cmp qword [out_file_ptr], 0
+    je .init_cipher_loop    ; Jeśli brak -o, fd_out zostaje jako STDOUT (wypisze na ekran!)
 
-    ; Otwieramy/Tworzymy plik wyjściowy (argv[3])
-    mov rdi, [rsp + 32]       ; rdi = argv[3]
+    mov rdi, [out_file_ptr]
     mov rax, SYS_OPEN
     mov rsi, O_WRONLY | O_CREAT | O_TRUNC
-    mov rdx, 0644o            ; Uprawnienia rw-r--r-- (w ósemkowym NASM dopisek 'o')
+    mov rdx, 0644o
     syscall
     cmp rax, 0
     jl .err_output_file
-    mov [fd_out], rax          ; Zapisujemy otrzymany deskryptor
+    mov [fd_out], rax       
 
 .init_cipher_loop:
-    xor r12, r12              ; r12 = indeks wewnątrz hasła (0 .. key_len-1)
+    xor r12, r12            ; Indeks wewnątrz hasła
 
 .read_loop:
-    ; Wywołanie systemowe sys_read z fd_in
     mov rax, SYS_READ
     mov rdi, [fd_in]
     mov rsi, buffer
@@ -108,10 +157,10 @@ _start:
     syscall
 
     cmp rax, 0
-    jle .close_files          ; Koniec pliku (EOF) lub błąd
+    jle .close_files        
 
-    mov r13, rax              ; r13 = liczba odczytanych bajtów
-    xor rbx, rbx              ; rbx = indeks w buforze danych
+    mov r13, rax            ; r13 = liczba przeczytanych bajtów
+    xor rbx, rbx            ; rbx = pozycja w buforze
 
 .cipher_loop:
     cmp rbx, r13
@@ -127,12 +176,12 @@ _start:
     inc rbx
     inc r12
     cmp r12, [key_len]
-    jne .cipher_loop
+    jne .skip_reset_key
     xor r12, r12
+.skip_reset_key:
     jmp .cipher_loop
 
 .write_buffer:
-    ; Wywołanie systemowe sys_write do fd_out
     mov rax, SYS_WRITE
     mov rdi, [fd_out]
     mov rsi, buffer
@@ -142,7 +191,6 @@ _start:
     jmp .read_loop
 
 .close_files:
-    ; Zamykamy plik wejściowy, jeśli nie był to stdin
     cmp qword [fd_in], STDIN
     je .close_output
     mov rax, SYS_CLOSE
@@ -150,7 +198,6 @@ _start:
     syscall
 
 .close_output:
-    ; Zamykamy plik wyjściowy, jeśli nie był to stdout
     cmp qword [fd_out], STDOUT
     je .exit_success
     mov rax, SYS_CLOSE
@@ -175,10 +222,9 @@ _start:
     jmp .exit_with_error
 
 .err_output_file:
-    ; Jeśli otwarliśmy wcześniej plik wejściowy, pasuje go zamknąć przed wywaleniem
     cmp qword [fd_in], STDIN
     je .print_err_out
-    mov rbx, rax              ; Zachowaj kod błędu
+    mov rbx, rax            
     mov rax, SYS_CLOSE
     mov rdi, [fd_in]
     syscall

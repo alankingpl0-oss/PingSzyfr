@@ -4,7 +4,7 @@ ASM_FLAGS = -f elf64
 LD = ld
 
 # Nazwa pliku wynikowego
-TARGET = szyfrator
+TARGET = pszyfr
 
 all: $(TARGET)
 
