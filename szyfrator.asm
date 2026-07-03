@@ -22,7 +22,7 @@ section .data
     BUF_SIZE  equ 1024
     
     usage_msg db "Błąd: Brakujące argumenty!", 10
-              db "Użycie: ./szyfrator <haslo> [plik_wej] [plik_wyj]", 10
+              db "Użycie: ./pszyfr <haslo> [plik_wej] [plik_wyj]", 10
               db "Jeśli nie podasz plików, program użyje stdin/stdout.", 10
     usage_len equ $ - usage_msg
 
